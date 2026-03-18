@@ -83,6 +83,8 @@ for(ii in 1:length(spp)){
 mtext("Norway Fishes")
 
 
+dat.nor$SiteName <- factor(dat.nor$SiteName)
+
 par(mar=c(12,8,2,1))
 plot(NA,NA, ylim=c(0.5, length(spp)+0.5), xlim=c(1,length(unique(dat.nor$SiteName))),
      xaxt="n", yaxt="n", xlab="", ylab="")
@@ -96,4 +98,3 @@ for(ii in 1:length(spp)){
 }
 mtext("Norway Fishes")
 
-#TODO check why this is weird (none at some sites that are in the data) and see if it applies to USA

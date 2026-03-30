@@ -1,16 +1,30 @@
 #' Harmonize taxonomic data across observations
 #'
 #' Resolves inconsistencies between coarse and fine taxonomic identifications
-#' within user-defined groups.
+#' within user-defined groups by reconciling taxonomic ranks and aggregating
+#' abundance accordingly.
 #'
-#' @param df Data frame containing taxonomy and abundance data
-#' @param decision_cols Columns used to decide harmonization
-#' @param output_site_cols Columns used in final grouping
-#' @param date_col Date column
-#' @param abundance_col Abundance column
-#' @param threshold Numeric (0–1) or NULL
+#' @param df A data frame containing taxonomy and abundance data.
+#' @param decision_cols Column(s) used to define groups for harmonization decisions.
+#' @param output_site_cols Column(s) used for grouping in the final output.
+#' @param date_col Name of the date column.
+#' @param abundance_col Name of the abundance column.
+#' @param threshold Numeric value between 0 and 1, or NULL. If provided,
+#'   finer taxa are retained when they contribute at least this proportion
+#'   of total abundance within a lineage.
 #'
-#' @return A harmonized data frame
+#' @return A data frame with harmonized taxonomy and aggregated abundance.
+#'
+#' @examples
+#' result <- harmonize_taxonomy(
+#'   df = Data_taxonomy,
+#'   decision_cols = "SiteID",   # or "Country", etc.
+#'   output_site_cols = "SiteID",
+#'   date_col = "Date",
+#'   abundance_col = "Value",
+#'   threshold = 0.90
+#' )
+#'
 #' @export
 
 

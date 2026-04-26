@@ -14,10 +14,14 @@ setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
 #TODO check whether ITIS works better for fish (e.g. has taxonomic class)
 
 
-#source("FunctionsTaxonomicHarmonization.R")
+### Load data and helper functions, some initial checking -----------------------------------------
+
+source("FunctionsTaxonomicHarmonization.R")
+source("FunctionsTemporalHarmonization.R")
 
 dat.raw <- read_parquet("../Fish_all.parquet")
 
+#option to load benthic macroinverts to check formatting consistency
 #bm1 <- read_parquet("../BenthicMacroinvertebrates_all.parquet")
 #bm2 <- read_parquet("../BenthicMacroinvertebrates_all_withTaxonomy.parquet")
 
@@ -32,21 +36,9 @@ table(dat.raw$Taxon[dat.raw$Country=="Norway"])
 
 dat.raw$Taxon <- as.character(dat.raw$Taxon)
 
-## USA data have arctic grayling, chinook, coho, dolly varden, slimy sculpin, and stickleback
-## Question for data providers: 
-##    Are stickleback one species given a general name, or are they multiple spp? (not many here)
-
-## Norway data have brook trout, char, cottus, perch, phoxinus, and trout
-## Question for data providers: 
-##    Are trout and brook trout the same? There's not many "brook trout" so maybe lump? Are trout multiple spp?
-##    Are char all artic char? or a group of species?
-##    Are cottus (freshwater sculpins) one species or multiple?
-##    Are perch one species or multiple? (not many here)
-##    Are phoxinus (minnows) one species or multiple?
 
 
-
-## Taxonomy Harmonization -------------------------------------------------------------------------
+### Build taxonomy table -------------------------------------------------------------------------
 
 # For species listed with common name, assign a scientific name
 dat.raw$Taxon_orig <- dat.raw$Taxon #keep original
@@ -231,13 +223,105 @@ tax_lookup <- map2_dfr(
 tax_table <- matched_names %>%
   left_join(tax_lookup, by = "matched_name")
 
+tax_table$subclass <- NA_character_
+
+tax_table <- tax_table[,c(1:11,14,12,13)]
+
 
 write.csv(tax_table, "../fish_taxonomyTable_gbif.csv", row.names=FALSE)
 
 
 
+### Add taxonomy to data and export parquet file --------------------------------------------------
+
+dat_taxa <- left_join(dat.raw, tax_table)
+write_parquet(dat_taxa, "../fish_all_withTaxonomy.parquet")
 
 
+
+### Exclude or otherwise deal with ValueTypes that will not analyzed ------------------------------
+origN <- nrow(dat_taxa)
+dat_taxa <- dat_taxa[!grepl("length", dat_taxa$ValueType),]
+dat_tada <- dat_taxa[dat_taxa$ValueType != "PresenceAbsence",] #possibly omit for richness-based analyses, but only 12 occurrences 
+table(as.character(dat_taxa$ValueType))
+
+## TODO data with ValueType=="Weight" appear to be weights of individual fish, need to sum by site and sampling event
+## TODO is ValueType=="Total weight" the same as ValueType=="Biomass"? For Salmo salar, there are often two rows, maybe for adult and juvenile and the lifestage info has been lost?
+
+### Temporal harmonization ------------------------------------------------------------------------
+
+# Keep only the columns needed for temporal harmonization.
+Data_temporal <- dat_taxa %>%
+  select(SiteID, Date) %>%
+  distinct()
+
+# Harmonize sampling dates across site-level time series.
+Data_temporal_harmonized <- harmonize_sampling(
+  Data = Data_temporal,
+  site_col = "SiteID",
+  group_col = "SiteID",   # or "Country", "climate", etc.
+  date_col = "Date",
+  min_years = 6,
+  buffer_months = 3
+)
+
+length(unique(dat.raw$SiteID)) #212 sites
+length(unique(Data_temporal_harmonized$SiteID)) #211 sites--only one gets dropped.
+
+Data_temporal_harmonized$sampleID <- paste(Data_temporal_harmonized$SiteID, Data_temporal_harmonized$Date)
+dat_taxa_timesub <- dat_taxa
+dat_taxa_timesub$sampleID <- paste(dat_taxa_timesub$SiteID, dat_taxa_timesub$Date)
+dat_taxa_timesub <- dat_taxa_timesub[dat_taxa_timesub$sampleID %in% Data_temporal_harmonized$sampleID,]
+
+### Taxonomic harmonization -----------------------------------------------------------------------
+
+# Keep the columns required for taxonomic harmonization.
+Data_taxonomy <- dat_taxa_timesub %>%
+  select(
+    SiteID, Date, Taxon_clean,
+    species, genus, family, order, subclass, class, phylum,
+    Value
+  )
+
+# Keep sample-level metadata to reattach after harmonization.
+Data_sample_level <- dat_taxa_timesub %>%
+  select(
+    BioticGroup, Lake.river, Sampled.habitat,
+    Country, SiteID, SiteName,
+    WaterBody, Lon, Lat, Day, Month,
+    Year, Date,
+    ValueType, Unit,
+    FishPresence, ReferenceCondition, climate, source_file
+  ) %>%
+  distinct()
+
+# Harmonize taxonomy 
+Data_taxonomy_harmonized <- harmonize_taxonomy(
+  df = Data_taxonomy,
+  decision_cols = "SiteID",   # or "Country", "climate", etc.
+  output_site_cols = "SiteID",
+  date_col = "Date",
+  abundance_col = "Value",
+  threshold = 0.90
+)
+
+# Reattach sample-level metadata 
+
+
+Data_harmonized <- Data_taxonomy_harmonized %>%
+  left_join(Data_sample_level, by = c("SiteID", "Date")) %>%
+  select(
+    any_of(names(dat_taxa)),  # keep original column order where possible
+    everything()          # then append any additional columns
+  )
+
+table(dat.raw$ValueType)
+
+#trying to resolve warning messages
+Data_taxonomy_harmonized$SiteID[1133]; Data_taxonomy_harmonized$Date[1133]
+
+
+check <- Data_sample_level[Data_sample_level$SiteID=="Könkämäeno 1" & Data_sample_level$Date=="1986-09-05",]
 
 # ## Sampling through time - USA --------------------------------------------------------
 # dat.usa <- dat.raw[dat.raw$Country=="USA",]

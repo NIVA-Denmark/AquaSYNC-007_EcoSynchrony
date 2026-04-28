@@ -11,53 +11,156 @@ library(tibble)
 
 setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
 
-## TODO data with ValueType=="Weight" appear to be weights of individual fish, need to sum by site and sampling event
-## TODO is ValueType=="Total weight" the same as ValueType=="Biomass"? 
-## TODO For Salmo salar, "Total weight" there are often two rows, maybe for adult and juvenile and the lifestage info has been lost?
-## - could also be M/F, get identifying info and talk with Jen
-## TODO how to use length data? A lot of sites have both length data and another kind of data, but not all.
-##  - It looks like 16 north american sites only have length data.
-##  - For these sites, is sampling scheme such that we can use counts of numbers of fish as an abundance metric?
-##  - Can we assume effort is consistent enough over time to use data that aren't normalized by effort?
+
 
 ### Load data and helper functions, some initial checking -----------------------------------------
 
 source("FunctionsTaxonomicHarmonization.R")
 source("FunctionsTemporalHarmonization.R")
 
-dat.raw <- read_parquet("../Fish_all.parquet")
+dat_raw <- read_parquet("../Fish_all.parquet")
 tax_table <- read.csv("../fish_taxonomyTable_gbif.csv")
 
 #option to load benthic macroinverts to check formatting consistency
 #bm1 <- read_parquet("../BenthicMacroinvertebrates_all.parquet")
 #bm2 <- read_parquet("../BenthicMacroinvertebrates_all_withTaxonomy.parquet")
 
-dat.raw$Taxon <- as.character(dat.raw$Taxon)
+dat_raw$Taxon <- as.character(dat_raw$Taxon)
 
 # For species listed with common name, assign a scientific name
-dat.raw$Taxon_orig <- dat.raw$Taxon #keep original
-dat.raw$Taxon[dat.raw$Taxon=="Arctic grayling"] <- "Thymallus arcticus"
-dat.raw$Taxon[dat.raw$Taxon=="Brook_trout"] <- "Salvelinus fontinalis"
-dat.raw$Taxon[dat.raw$Taxon=="Char"] <- "Salvelinus alpinus"
-dat.raw$Taxon[dat.raw$Taxon=="Chinook"] <- "Oncorhynchus tshawytscha"
-dat.raw$Taxon[dat.raw$Taxon=="Coho"] <- "Oncorhynchus kisutch"
-dat.raw$Taxon[dat.raw$Taxon=="Dolly Varden"] <- "Salvelinus malma"
-dat.raw$Taxon[dat.raw$Taxon=="Perch"] <- "Perca fluviatilis"
-dat.raw$Taxon[dat.raw$Taxon=="Phoxinus"] <- "Phoxinus phoxinus"
-dat.raw$Taxon[dat.raw$Taxon=="slimy sculpin"] <- "Cottus cognatus"
-dat.raw$Taxon[dat.raw$Taxon=="Stickleback"] <- "Gasterosteidae"
-dat.raw$Taxon[dat.raw$Taxon=="Trout"] <- "Salmo trutta"
+dat_raw$Taxon_orig <- dat_raw$Taxon #keep original
+dat_raw$Taxon[dat_raw$Taxon=="Arctic grayling"] <- "Thymallus arcticus"
+dat_raw$Taxon[dat_raw$Taxon=="Brook_trout"] <- "Salvelinus fontinalis"
+dat_raw$Taxon[dat_raw$Taxon=="Char"] <- "Salvelinus alpinus"
+dat_raw$Taxon[dat_raw$Taxon=="Chinook"] <- "Oncorhynchus tshawytscha"
+dat_raw$Taxon[dat_raw$Taxon=="Coho"] <- "Oncorhynchus kisutch"
+dat_raw$Taxon[dat_raw$Taxon=="Dolly Varden"] <- "Salvelinus malma"
+dat_raw$Taxon[dat_raw$Taxon=="Perch"] <- "Perca fluviatilis"
+dat_raw$Taxon[dat_raw$Taxon=="Phoxinus"] <- "Phoxinus phoxinus"
+dat_raw$Taxon[dat_raw$Taxon=="slimy sculpin"] <- "Cottus cognatus"
+dat_raw$Taxon[dat_raw$Taxon=="Stickleback"] <- "Gasterosteidae"
+dat_raw$Taxon[dat_raw$Taxon=="Trout"] <- "Salmo trutta"
 
-dat.raw <- dat.raw[dat.raw$Taxon != "Unidentified Unidentified",]
+dat_raw <- dat_raw[dat_raw$Taxon != "Unidentified Unidentified",]
+
+dat_raw$Unit <- trimws(dat_raw$Unit)
+
+
+### Aggregating certain value types as appropriate ------------------------------------------------
+
+orig_cols <- colnames(dat_raw)
+
+## For Salmo salar, "Total weight" there are sometimes two rows for wild/hatchery. Combine.
+
+dat_totalWeight_ss <- dat_raw[dat_raw$ValueType=="Total weight" & dat_raw$Taxon == "Salmo salar",]
+
+dat_totalWeight_ss_sum <- dat_totalWeight_ss %>%
+  group_by(SiteID, Taxon, Date) %>%
+  summarize(
+    BioticGroup = first(BioticGroup),
+    Lake.river = first(Lake.river),
+    Sampled.habitat = first(Sampled.habitat),
+    Country = first(Country),
+    SiteName = first(SiteName),
+    WaterBody = first(WaterBody),
+    Lon = first(Lon),
+    Lat = first(Lat),
+    SampleID = first(SampleID),
+    Day = first(Day),
+    Month = first(Month),
+    Year = first(Year),
+    Value = sum(Value),
+    ValueType = "Total weight",
+    Unit = first(Unit),
+    FishPresence = "Yes",
+    ReferenceCondition = first(ReferenceCondition),
+    source_file = first(source_file),
+    climate = first(climate),
+    Taxon_orig = first(Taxon_orig)
+  )
+
+dat_totalWeight_ss_sum <- dat_totalWeight_ss_sum[,match(orig_cols,colnames(dat_totalWeight_ss_sum))] 
+
+## Data with ValueType=="Weight" are individual fish, sum by site and sampling event
+
+dat_weight <- dat_raw[dat_raw$ValueType=="Weight",]
+
+dat_weight_sum <- dat_weight %>%
+  group_by(SiteID, Taxon, Date) %>%
+  summarize(
+    BioticGroup = first(BioticGroup),
+    Lake.river = first(Lake.river),
+    Sampled.habitat = first(Sampled.habitat),
+    Country = first(Country),
+    SiteName = first(SiteName),
+    WaterBody = first(WaterBody),
+    Lon = first(Lon),
+    Lat = first(Lat),
+    SampleID = first(SampleID),
+    Day = first(Day),
+    Month = first(Month),
+    Year = first(Year),
+    Value = sum(Value),
+    ValueType = "Total weight",
+    Unit = first(Unit),
+    FishPresence = "Yes",
+    ReferenceCondition = first(ReferenceCondition),
+    source_file = first(source_file),
+    climate = first(climate),
+    Taxon_orig = first(Taxon_orig)
+  )
+
+dat_weight_sum <- dat_weight_sum[,match(orig_cols,colnames(dat_weight_sum))] 
+
+
+## Data with ValueType=="Length" are individual fish, turn into count by site, sampling date, and taxon
+
+dat_length <- dat_raw[grepl("length", dat_raw$ValueType, ignore.case=TRUE),]
+
+dat_length_count <- dat_length %>%
+  group_by(SiteID, Taxon, Date) %>%
+  summarize(
+    BioticGroup = first(BioticGroup),
+    Lake.river = first(Lake.river),
+    Sampled.habitat = first(Sampled.habitat),
+    Country = first(Country),
+    SiteName = first(SiteName),
+    WaterBody = first(WaterBody),
+    Lon = first(Lon),
+    Lat = first(Lat),
+    SampleID = first(SampleID),
+    Day = first(Day),
+    Month = first(Month),
+    Year = first(Year),
+    Value = n(),
+    ValueType = "Count",
+    Unit = "ind",
+    FishPresence = "Yes",
+    ReferenceCondition = first(ReferenceCondition),
+    source_file = first(source_file),
+    climate = first(climate),
+    Taxon_orig = first(Taxon_orig)
+    )
+
+dat_length_count <- dat_length_count[,match(orig_cols,colnames(dat_length_count))]
 
 
 
+## Remove aggregated observations from raw data table and then add the aggregated data on the bottom
 
+dat_agg <- dat_raw
+dat_agg <- dat_agg[!(dat_agg$ValueType=="Total weight" & dat_agg$Taxon == "Salmo salar"),]
+dat_agg <- dat_agg[dat_agg$ValueType!="Weight",]
+dat_agg <- dat_agg[!grepl("length", dat_agg$ValueType, ignore.case=TRUE),]
+dat_agg <- rbind(dat_agg, dat_totalWeight_ss_sum, dat_weight_sum, dat_length_count)
+
+#check number of rows
+#nrow(dat_raw) - nrow(dat_length) - nrow(dat_weight) - nrow(dat_totalWeight_ss) + nrow(dat_totalWeight_ss_sum) + nrow(dat_weight_sum) + nrow(dat_length_count)
 
 ### Add taxonomy to data and export parquet file --------------------------------------------------
 
-dat_taxa <- left_join(dat.raw, tax_table)
-write_parquet(dat_taxa, "../fish_all_withTaxonomy.parquet")
+dat_taxa <- left_join(dat_agg, tax_table)
+write_parquet(dat_taxa, "../fish_all_withTaxonomy_individualsAggregated.parquet")
 
 
 
@@ -66,9 +169,6 @@ write_parquet(dat_taxa, "../fish_all_withTaxonomy.parquet")
 #dat_taxa <- dat_taxa[!grepl("length", dat_taxa$ValueType),]
 dat_taxa <- dat_taxa[dat_taxa$ValueType != "PresenceAbsence",] #possibly omit for richness-based analyses, but only 12 occurrences 
 #table(as.character(dat_taxa$ValueType))
-
-
-### Aggregate individual-level data to counts and total biomass -----------------------------------
 
 
 
@@ -89,8 +189,8 @@ Data_temporal_harmonized <- harmonize_sampling(
   buffer_months = 3
 )
 
-length(unique(dat.raw$SiteID)) #212 sites
-length(unique(Data_temporal_harmonized$SiteID)) #211 sites--only one gets dropped.
+length(unique(dat_raw$SiteID)) #212 sites
+length(unique(Data_temporal_harmonized$SiteID)) #210 sites--two get dropped.
 
 Data_temporal_harmonized$sampleID <- paste(Data_temporal_harmonized$SiteID, Data_temporal_harmonized$Date)
 dat_taxa_timesub <- dat_taxa
@@ -139,7 +239,7 @@ Data_harmonized <- Data_taxonomy_harmonized %>%
     everything()          # then append any additional columns
   )
 
-table(dat.raw$ValueType)
+table(dat_raw$ValueType)
 
 #trying to resolve warning messages
 Data_taxonomy_harmonized$SiteID[1133]; Data_taxonomy_harmonized$Date[1133]
@@ -148,7 +248,7 @@ Data_taxonomy_harmonized$SiteID[1133]; Data_taxonomy_harmonized$Date[1133]
 check <- Data_sample_level[Data_sample_level$SiteID=="Könkämäeno 1" & Data_sample_level$Date=="1986-09-05",]
 
 # ## Sampling through time - USA --------------------------------------------------------
-# dat.usa <- dat.raw[dat.raw$Country=="USA",]
+# dat.usa <- dat_raw[dat_raw$Country=="USA",]
 # spp <- unique(as.character(dat.usa$Taxon))
 # 
 # #sampling through time
@@ -184,7 +284,7 @@ check <- Data_sample_level[Data_sample_level$SiteID=="Könkämäeno 1" & Data_sa
 # 
 # 
 # ## Sampling through time - Norway --------------------------------------------------------
-# dat.nor <- dat.raw[dat.raw$Country=="Norway",]
+# dat.nor <- dat_raw[dat_raw$Country=="Norway",]
 # spp <- unique(as.character(dat.nor$Taxon))
 # 
 # par(mar=c(4.1,8,2,1))

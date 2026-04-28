@@ -26,6 +26,7 @@ tax_table <- read.csv("../fish_taxonomyTable_gbif.csv")
 #bm2 <- read_parquet("../BenthicMacroinvertebrates_all_withTaxonomy.parquet")
 
 dat_raw$Taxon <- as.character(dat_raw$Taxon)
+dat_raw$ValueType <- as.character(dat_raw$ValueType)
 
 # For species listed with common name, assign a scientific name
 dat_raw$Taxon_orig <- dat_raw$Taxon #keep original
@@ -44,6 +45,17 @@ dat_raw$Taxon[dat_raw$Taxon=="Trout"] <- "Salmo trutta"
 dat_raw <- dat_raw[dat_raw$Taxon != "Unidentified Unidentified",]
 
 dat_raw$Unit <- trimws(dat_raw$Unit)
+
+#fix some value types
+
+dat_raw$ValueType[grepl("fork length", dat_raw$ValueType, ignore.case=TRUE)] <- "Fork length"
+dat_raw$ValueType[grepl("total length", dat_raw$ValueType, ignore.case=TRUE)] <- "Total length"
+
+### Exclude or otherwise deal with ValueTypes that will not analyzed ------------------------------
+#origN <- nrow(dat_taxa)
+#dat_taxa <- dat_taxa[!grepl("length", dat_taxa$ValueType),]
+dat_raw <- dat_raw[dat_raw$ValueType != "PresenceAbsence",] #possibly include for richness-based analyses, but only 12 occurrences 
+#table(as.character(dat_taxa$ValueType))
 
 
 ### Aggregating certain value types as appropriate ------------------------------------------------
@@ -157,18 +169,69 @@ dat_agg <- rbind(dat_agg, dat_totalWeight_ss_sum, dat_weight_sum, dat_length_cou
 #check number of rows
 #nrow(dat_raw) - nrow(dat_length) - nrow(dat_weight) - nrow(dat_totalWeight_ss) + nrow(dat_totalWeight_ss_sum) + nrow(dat_weight_sum) + nrow(dat_length_count)
 
+
+### Select data type to analyze, as needed --------------------------------------------------------
+
+## Check for multiple data types per site
+
+multitype_data <- NULL
+
+for(site in unique(dat_agg$SiteID)){
+  
+  tmp <- dat_agg[dat_agg$SiteID==site,]
+  if(length(unique(as.character(tmp$ValueType)))>1){
+    
+    tmp <- tmp %>%
+      group_by(SiteID, ValueType) %>%
+      summarize(Count = n())
+    
+    multitype_data <- rbind(multitype_data, tmp)
+    
+  }
+}
+
+
+## Select which to use, favoring the data type with the longest record, or when equal the hierarchy:
+
+multitype_toUse <- NULL
+
+for(site in unique(multitype_data$SiteID)){
+   tmp <- multitype_data[multitype_data$SiteID==site,]
+   if(length(unique(tmp$Count))>1){
+     multitype_toUse <- rbind(multitype_toUse, tmp[tmp$Count==max(tmp$Count),1:2])
+   }
+   else{
+     if("CPUE" %in% tmp$ValueType & "Count" %in% tmp$ValueType){
+       multitype_toUse <- rbind(multitype_toUse, tmp[tmp$ValueType=="CPUE",1:2])
+     }
+     if("Total weight" %in% tmp$ValueType & "Count" %in% tmp$ValueType){
+       multitype_toUse <- rbind(multitype_toUse, tmp[tmp$ValueType=="Total weight",1:2])
+     }
+     if("Biomass" %in% tmp$ValueType & "Density" %in% tmp$ValueType){
+       multitype_toUse <- rbind(multitype_toUse, tmp[tmp$ValueType=="Biomass",1:2])
+     }
+   }
+}
+
+#length(unique(multitype_data$SiteID)) == nrow(multitype_toUse)
+#any(duplicated(multitype_toUse$SiteID))
+
+#Identify and drop rows representing data types we will not use
+droprow <- NULL
+
+for(ii in 1:nrow(multitype_toUse)){
+  droprow <- c(droprow,
+               which(dat_agg$SiteID==multitype_toUse$SiteID[ii] & dat_agg$ValueType!=multitype_toUse$ValueType[ii]))
+}
+
+dat_agg <- dat_agg[-droprow,]
+
+
 ### Add taxonomy to data and export parquet file --------------------------------------------------
 
 dat_taxa <- left_join(dat_agg, tax_table)
-write_parquet(dat_taxa, "../fish_all_withTaxonomy_individualsAggregated.parquet")
+#write_parquet(dat_taxa, "../fish_all_withTaxonomy_individualsAggregated.parquet")
 
-
-
-### Exclude or otherwise deal with ValueTypes that will not analyzed ------------------------------
-#origN <- nrow(dat_taxa)
-#dat_taxa <- dat_taxa[!grepl("length", dat_taxa$ValueType),]
-dat_taxa <- dat_taxa[dat_taxa$ValueType != "PresenceAbsence",] #possibly omit for richness-based analyses, but only 12 occurrences 
-#table(as.character(dat_taxa$ValueType))
 
 
 
@@ -189,8 +252,8 @@ Data_temporal_harmonized <- harmonize_sampling(
   buffer_months = 3
 )
 
-length(unique(dat_raw$SiteID)) #212 sites
-length(unique(Data_temporal_harmonized$SiteID)) #210 sites--two get dropped.
+length(unique(dat_raw$SiteID)) #211 sites
+length(unique(Data_temporal_harmonized$SiteID)) #210 sites--one gets dropped.
 
 Data_temporal_harmonized$sampleID <- paste(Data_temporal_harmonized$SiteID, Data_temporal_harmonized$Date)
 dat_taxa_timesub <- dat_taxa
@@ -230,8 +293,6 @@ Data_taxonomy_harmonized <- harmonize_taxonomy(
 )
 
 # Reattach sample-level metadata 
-
-
 Data_harmonized <- Data_taxonomy_harmonized %>%
   left_join(Data_sample_level, by = c("SiteID", "Date")) %>%
   select(
@@ -239,13 +300,16 @@ Data_harmonized <- Data_taxonomy_harmonized %>%
     everything()          # then append any additional columns
   )
 
-table(dat_raw$ValueType)
 
-#trying to resolve warning messages
+#trying to understand warning messages
 Data_taxonomy_harmonized$SiteID[1133]; Data_taxonomy_harmonized$Date[1133]
-
-
 check <- Data_sample_level[Data_sample_level$SiteID=="Könkämäeno 1" & Data_sample_level$Date=="1986-09-05",]
+
+Data_sample_level$SiteID[5714]; Data_sample_level$Date[5714]
+check <- Data_taxonomy_harmonized[Data_taxonomy_harmonized$SiteID=="Anxiety Ridge" & Data_taxonomy_harmonized$Date=="2016-08-05",]
+#Warnings arise because of some sites have multiple units of measure -- need to select the best one and drop others
+
+check <- Data_harmonized[Data_harmonized$SiteID=="Könkämäeno 1",]
 
 # ## Sampling through time - USA --------------------------------------------------------
 # dat.usa <- dat_raw[dat_raw$Country=="USA",]

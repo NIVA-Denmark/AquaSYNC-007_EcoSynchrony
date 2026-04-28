@@ -11,8 +11,14 @@ library(tibble)
 
 setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
 
-#TODO check whether ITIS works better for fish (e.g. has taxonomic class)
-
+## TODO data with ValueType=="Weight" appear to be weights of individual fish, need to sum by site and sampling event
+## TODO is ValueType=="Total weight" the same as ValueType=="Biomass"? 
+## TODO For Salmo salar, "Total weight" there are often two rows, maybe for adult and juvenile and the lifestage info has been lost?
+## - could also be M/F, get identifying info and talk with Jen
+## TODO how to use length data? A lot of sites have both length data and another kind of data, but not all.
+##  - It looks like 16 north american sites only have length data.
+##  - For these sites, is sampling scheme such that we can use counts of numbers of fish as an abundance metric?
+##  - Can we assume effort is consistent enough over time to use data that aren't normalized by effort?
 
 ### Load data and helper functions, some initial checking -----------------------------------------
 
@@ -55,6 +61,16 @@ dat.raw$Taxon[dat.raw$Taxon=="Stickleback"] <- "Gasterosteidae"
 dat.raw$Taxon[dat.raw$Taxon=="Trout"] <- "Salmo trutta"
 
 dat.raw <- dat.raw[dat.raw$Taxon != "Unidentified Unidentified",]
+
+### ID cases where there are 2 rows for Salmo salar -----------------------------------------------
+
+# sub1 <- dat.raw[dat.raw$Taxon=="Salmo salar" & dat.raw$ValueType=="Total weight",]
+# 
+# site_x_date <- unique(cbind(as.character(sub1$SiteID), as.character(sub1$Date)))
+# 
+# write.csv(sub1, "../SalmoSalar_2weights_full.csv", row.names=FALSE)
+# write.csv(site_x_date, "../SalmoSalar_2weights_SiteIDxDate.csv", row.names=FALSE)
+
 
 # cleaning
 TaxaList <- dat.raw %>%
@@ -240,13 +256,15 @@ write_parquet(dat_taxa, "../fish_all_withTaxonomy.parquet")
 
 
 ### Exclude or otherwise deal with ValueTypes that will not analyzed ------------------------------
-origN <- nrow(dat_taxa)
-dat_taxa <- dat_taxa[!grepl("length", dat_taxa$ValueType),]
-dat_tada <- dat_taxa[dat_taxa$ValueType != "PresenceAbsence",] #possibly omit for richness-based analyses, but only 12 occurrences 
-table(as.character(dat_taxa$ValueType))
+#origN <- nrow(dat_taxa)
+#dat_taxa <- dat_taxa[!grepl("length", dat_taxa$ValueType),]
+dat_taxa <- dat_taxa[dat_taxa$ValueType != "PresenceAbsence",] #possibly omit for richness-based analyses, but only 12 occurrences 
+#table(as.character(dat_taxa$ValueType))
 
-## TODO data with ValueType=="Weight" appear to be weights of individual fish, need to sum by site and sampling event
-## TODO is ValueType=="Total weight" the same as ValueType=="Biomass"? For Salmo salar, there are often two rows, maybe for adult and juvenile and the lifestage info has been lost?
+
+### Aggregate individual-level data to counts and total biomass -----------------------------------
+
+
 
 ### Temporal harmonization ------------------------------------------------------------------------
 

@@ -169,6 +169,7 @@ dat_agg <- rbind(dat_agg, dat_totalWeight_ss_sum, dat_weight_sum, dat_length_cou
 #check number of rows
 #nrow(dat_raw) - nrow(dat_length) - nrow(dat_weight) - nrow(dat_totalWeight_ss) + nrow(dat_totalWeight_ss_sum) + nrow(dat_weight_sum) + nrow(dat_length_count)
 
+rm(dat_length, dat_weight, dat_totalWeight_ss, dat_length_count, dat_totalWeight_ss_sum, dat_weight_sum)
 
 ### Select data type to analyze, as needed --------------------------------------------------------
 
@@ -301,81 +302,12 @@ Data_harmonized <- Data_taxonomy_harmonized %>%
   )
 
 
-#trying to understand warning messages
-Data_taxonomy_harmonized$SiteID[1133]; Data_taxonomy_harmonized$Date[1133]
-check <- Data_sample_level[Data_sample_level$SiteID=="Könkämäeno 1" & Data_sample_level$Date=="1986-09-05",]
-
-Data_sample_level$SiteID[5714]; Data_sample_level$Date[5714]
-check <- Data_taxonomy_harmonized[Data_taxonomy_harmonized$SiteID=="Anxiety Ridge" & Data_taxonomy_harmonized$Date=="2016-08-05",]
-#Warnings arise because of some sites have multiple units of measure -- need to select the best one and drop others
-
-check <- Data_harmonized[Data_harmonized$SiteID=="Könkämäeno 1",]
-
-# ## Sampling through time - USA --------------------------------------------------------
-# dat.usa <- dat_raw[dat_raw$Country=="USA",]
-# spp <- unique(as.character(dat.usa$Taxon))
+# #trying to understand warning messages <--- the causes for these were resolved upsteam and nolonger occur as of 2026-04-29
+# Data_taxonomy_harmonized$SiteID[1133]; Data_taxonomy_harmonized$Date[1133]
+# check <- Data_sample_level[Data_sample_level$SiteID=="Könkämäeno 1" & Data_sample_level$Date=="1986-09-05",]
 # 
-# #sampling through time
-# par(mar=c(4.1,8,2,1))
-# plot(NA,NA, ylim=c(0.5, length(spp)+0.5), xlim=range(dat.usa$Date),
-#      xaxt="n", yaxt="n", xlab="Time", ylab="")
-# axis(2, at=1:length(spp), labels=spp, las=2)
-# axis(1, at=pretty(dat.usa$Date), labels=as.character(as.Date(pretty(dat.usa$Date))))
-# abline(h=1:length(spp))
-# for(ii in 1:length(spp)){
-#   dat.sub <- dat.usa[dat.usa$Taxon==spp[ii],]
-#   points(dat.sub$Date, rep(ii, nrow(dat.sub)), pch=16, col="blue")
-# }
-# mtext("USA Fishes")
+# Data_sample_level$SiteID[5714]; Data_sample_level$Date[5714]
+# check <- Data_taxonomy_harmonized[Data_taxonomy_harmonized$SiteID=="Anxiety Ridge" & Data_taxonomy_harmonized$Date=="2016-08-05",]
+# #Warnings arise because of some sites have multiple units of measure -- need to select the best one and drop others
 # 
-# #sampling by location
-# dat.usa$SiteName <- factor(dat.usa$SiteName)
-# 
-# 
-# par(mar=c(12,8,2,1))
-# plot(NA,NA, ylim=c(0.5, length(spp)+0.5), xlim=c(1,length(unique(dat.usa$SiteName))),
-#      xaxt="n", yaxt="n", xlab="", ylab="")
-# axis(2, at=1:length(spp), labels=spp, las=2)
-# axis(1, at=1:length(unique(dat.usa$SiteName)), labels=unique(dat.usa$SiteName), las=2)
-# abline(h=1:length(spp))
-# abline(v=1:length(unique(dat.usa$SiteName)))
-# for(ii in 1:length(spp)){
-#   dat.sub <- dat.usa[dat.usa$Taxon==spp[ii],]
-#   points(as.numeric(dat.sub$SiteName), rep(ii, nrow(dat.sub)), pch=16, col="blue")
-# }
-# mtext("USA Fishes")
-# 
-# 
-# 
-# ## Sampling through time - Norway --------------------------------------------------------
-# dat.nor <- dat_raw[dat_raw$Country=="Norway",]
-# spp <- unique(as.character(dat.nor$Taxon))
-# 
-# par(mar=c(4.1,8,2,1))
-# plot(NA,NA, ylim=c(0.5, length(spp)+0.5), xlim=range(dat.nor$Date),
-#      xaxt="n", yaxt="n", xlab="Time", ylab="")
-# axis(2, at=1:length(spp), labels=spp, las=2)
-# axis(1, at=pretty(dat.nor$Date), labels=as.character(as.Date(pretty(dat.nor$Date))))
-# abline(h=1:length(spp))
-# for(ii in 1:length(spp)){
-#   dat.sub <- dat.nor[dat.nor$Taxon==spp[ii],]
-#   points(dat.sub$Date, rep(ii, nrow(dat.sub)), pch=16, col="blue")
-# }
-# mtext("Norway Fishes")
-# 
-# 
-# dat.nor$SiteName <- factor(dat.nor$SiteName)
-# 
-# par(mar=c(12,8,2,1))
-# plot(NA,NA, ylim=c(0.5, length(spp)+0.5), xlim=c(1,length(unique(dat.nor$SiteName))),
-#      xaxt="n", yaxt="n", xlab="", ylab="")
-# axis(2, at=1:length(spp), labels=spp, las=2)
-# axis(1, at=1:length(unique(dat.nor$SiteName)), labels=unique(dat.nor$SiteName), las=2)
-# abline(h=1:length(spp))
-# abline(v=1:length(unique(dat.nor$SiteName)))
-# for(ii in 1:length(spp)){
-#   dat.sub <- dat.nor[dat.nor$Taxon==spp[ii],]
-#   points(as.numeric(dat.sub$SiteName), rep(ii, nrow(dat.sub)), pch=16, col="blue")
-# }
-# mtext("Norway Fishes")
-# 
+# check <- Data_harmonized[Data_harmonized$SiteID=="Könkämäeno 1",]

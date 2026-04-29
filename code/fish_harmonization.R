@@ -302,6 +302,9 @@ Data_harmonized <- Data_taxonomy_harmonized %>%
   )
 
 
+write_parquet(Data_harmonized, "../fish_harmonized.parquet")
+
+
 # #trying to understand warning messages <--- the causes for these were resolved upsteam and nolonger occur as of 2026-04-29
 # Data_taxonomy_harmonized$SiteID[1133]; Data_taxonomy_harmonized$Date[1133]
 # check <- Data_sample_level[Data_sample_level$SiteID=="Könkämäeno 1" & Data_sample_level$Date=="1986-09-05",]

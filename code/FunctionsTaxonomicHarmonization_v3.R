@@ -1,14 +1,19 @@
 library(dplyr)
 library(tibble)
+library(tidyr)
+library(rlang)
 
-rank_cols <- c("phylum", "class", "subclass", "order", "family", "genus", "species")
+rank_cols <- c(
+  "phylum", "class", "subclass", "order",
+  "family", "subfamily", "genus", "species"
+)
 
 clean_taxonomy <- function(df, rank_cols) {
   df %>%
     mutate(
       across(
         all_of(rank_cols),
-        ~{
+        ~ {
           x <- as.character(.x)
           x <- trimws(x)
           x[x %in% c("", "NA", "Na", "na", "NULL", "null")] <- NA_character_
@@ -115,9 +120,12 @@ harmonize_parent_vs_all_finer <- function(df,
         prop_finer <- if (total_pf > 0) finer_abund / total_pf else NA_real_
         
         action <- case_when(
-          has_parent & has_finer & !is.null(threshold) & prop_finer >= threshold ~ "keep_finer_drop_parent",
-          has_parent & has_finer ~ "collapse_to_parent",
-          TRUE ~ "no_change"
+          has_parent & has_finer & !is.null(threshold) & prop_finer >= threshold ~
+            "keep_finer_drop_parent",
+          has_parent & has_finer ~
+            "collapse_to_parent",
+          TRUE ~
+            "no_change"
         )
         
         tibble(action = action)
@@ -134,8 +142,10 @@ harmonize_parent_vs_all_finer <- function(df,
   if (length(deeper_cols) > 0) {
     work2 <- work2 %>%
       mutate(
-        across(all_of(deeper_cols),
-               ~ ifelse(action == "collapse_to_parent", NA_character_, .x))
+        across(
+          all_of(deeper_cols),
+          ~ ifelse(action == "collapse_to_parent", NA_character_, .x)
+        )
       )
   }
   
@@ -173,8 +183,10 @@ cleanup_missing_intermediates_decision <- function(df,
       for (i in seq_len(nrow(coarse_rows))) {
         cr <- coarse_rows[i, ]
         
-        if (!lineage_exists_in_observed(cr, observed_lineages,
-                                        decision_cols, coarse_idx, coarse_rank)) next
+        if (!lineage_exists_in_observed(
+          cr, observed_lineages,
+          decision_cols, coarse_idx, coarse_rank
+        )) next
         
         same_group <- Reduce(`&`, lapply(decision_cols, function(g) df[[g]] == cr[[g]]))
         
@@ -199,7 +211,8 @@ cleanup_missing_intermediates_decision <- function(df,
         finer_abund  <- sum(df[[abundance_col]][finer], na.rm = TRUE)
         total_abund  <- coarse_abund + finer_abund
         
-        if (!is.null(threshold) && total_abund > 0 &&
+        if (!is.null(threshold) &&
+            total_abund > 0 &&
             (finer_abund / total_abund) >= threshold) {
           
           keep_row[coarse_same] <- FALSE
@@ -247,6 +260,7 @@ apply_decision_harmonization_to_rows <- function(df,
     rw_rank_idx <- rank_index[[rw$original_rank[1]]]
     
     cand <- decision_harm2
+    
     for (g in decision_cols) {
       cand <- cand[cand[[g]] == rw[[g]][1], , drop = FALSE]
     }
@@ -279,49 +293,9 @@ add_flag_no_finer <- function(out, output_site_cols, date_col) {
   out_with_id <- out %>%
     mutate(.row_id_internal = row_number())
   
-  n_finer_lookup <- out_with_id %>%
-    group_by(across(all_of(output_site_cols))) %>%
-    group_modify(~{
-      
-      df <- .x
-      df$rank_idx <- match(df$harmonized_rank, rank_cols)
-      df$n_finer <- NA_integer_
-      
-      flagged_rows <- which(df$flag_coarse_taxon)
-      
-      for (i in flagged_rows) {
-        this_idx <- df$rank_idx[i]
-        if (is.na(this_idx)) next
-        
-        possible_finer <- which(df$rank_idx > this_idx)
-        
-        if (length(possible_finer) == 0) {
-          df$n_finer[i] <- 0L
-          next
-        }
-        
-        lineage_cols <- rank_cols[1:this_idx]
-        same_lineage <- rep(TRUE, length(possible_finer))
-        
-        for (rc in lineage_cols) {
-          this_val <- df[[rc]][i]
-          if (!is.na(this_val)) {
-            same_lineage <- same_lineage & df[[rc]][possible_finer] == this_val
-          }
-        }
-        
-        finer_taxa <- df$harmonized_taxon[possible_finer][same_lineage]
-        df$n_finer[i] <- dplyr::n_distinct(finer_taxa, na.rm = TRUE)
-      }
-      
-      df %>% select(.row_id_internal, n_finer)
-    }) %>%
-    ungroup() %>%
-    select(.row_id_internal, n_finer)
-  
   flag_lookup <- out_with_id %>%
     group_by(across(all_of(c(output_site_cols, date_col)))) %>%
-    group_modify(~{
+    group_modify(~ {
       
       df <- .x
       df$rank_idx <- match(df$harmonized_rank, rank_cols)
@@ -361,11 +335,82 @@ add_flag_no_finer <- function(out, output_site_cols, date_col) {
   
   out_with_id %>%
     left_join(flag_lookup, by = ".row_id_internal") %>%
-    left_join(n_finer_lookup, by = ".row_id_internal") %>%
     mutate(
-      n_finer = ifelse(flag_coarse_taxon & flag_no_finer, n_finer, NA_integer_)
+      flag_coarse_taxon = as.logical(flag_coarse_taxon),
+      flag_no_finer = if_else(flag_coarse_taxon, flag_no_finer, FALSE)
     ) %>%
     select(-.row_id_internal)
+}
+
+add_n_finer_fast <- function(out, output_site_cols) {
+  
+  out2 <- out %>%
+    mutate(
+      .row_id_internal = row_number(),
+      rank_idx = match(harmonized_rank, rank_cols)
+    )
+  
+  flagged <- out2 %>%
+    filter(flag_coarse_taxon) %>%
+    select(
+      .row_id_internal,
+      all_of(output_site_cols),
+      rank_idx,
+      all_of(rank_cols)
+    )
+  
+  if (nrow(flagged) == 0) {
+    return(
+      out2 %>%
+        mutate(n_finer = NA_integer_) %>%
+        select(-.row_id_internal, -rank_idx)
+    )
+  }
+  
+  finer <- out2 %>%
+    filter(!is.na(rank_idx)) %>%
+    select(
+      all_of(output_site_cols),
+      finer_rank_idx = rank_idx,
+      finer_taxon = harmonized_taxon,
+      all_of(rank_cols)
+    )
+  
+  n_finer <- flagged %>%
+    left_join(
+      finer,
+      by = output_site_cols,
+      suffix = c("_coarse", "_finer"),
+      relationship = "many-to-many"
+    ) %>%
+    filter(finer_rank_idx > rank_idx)
+  
+  for (rc in rank_cols) {
+    coarse_col <- paste0(rc, "_coarse")
+    finer_col  <- paste0(rc, "_finer")
+    
+    n_finer <- n_finer %>%
+      filter(is.na(.data[[coarse_col]]) | .data[[coarse_col]] == .data[[finer_col]])
+  }
+  
+  n_finer <- n_finer %>%
+    group_by(.row_id_internal) %>%
+    summarise(
+      n_finer = n_distinct(finer_taxon, na.rm = TRUE),
+      .groups = "drop"
+    )
+  
+  out2 %>%
+    left_join(n_finer, by = ".row_id_internal") %>%
+    mutate(
+      flag_coarse_taxon = as.logical(flag_coarse_taxon),
+      n_finer = if_else(
+        flag_coarse_taxon,
+        replace_na(n_finer, 0L),
+        NA_integer_
+      )
+    ) %>%
+    select(-.row_id_internal, -rank_idx)
 }
 
 harmonize_taxonomy <- function(df,
@@ -375,7 +420,8 @@ harmonize_taxonomy <- function(df,
                                abundance_col = "Value",
                                threshold = NULL) {
   
-  df_clean <- df %>% clean_taxonomy(rank_cols)
+  df_clean <- df %>%
+    clean_taxonomy(rank_cols)
   
   observed_lineages <- df_clean %>%
     select(all_of(c(decision_cols, rank_cols, abundance_col))) %>%
@@ -385,29 +431,40 @@ harmonize_taxonomy <- function(df,
     select(all_of(c(decision_cols, rank_cols, abundance_col))) %>%
     collapse_taxa(group_cols = decision_cols)
   
-  for (parent in c("genus", "family", "order", "subclass", "class", "phylum")) {
+  for (parent in c("genus", "subfamily", "family", "order", "subclass", "class", "phylum")) {
     decision_harm <- harmonize_parent_vs_all_finer(
-      decision_harm, decision_cols, parent, abundance_col, threshold
+      decision_harm,
+      decision_cols,
+      parent,
+      abundance_col,
+      threshold
     )
   }
   
   decision_harm <- cleanup_missing_intermediates_decision(
-    decision_harm, decision_cols, observed_lineages, abundance_col, threshold
+    decision_harm,
+    decision_cols,
+    observed_lineages,
+    abundance_col,
+    threshold
   )
   
   mapped_rows <- apply_decision_harmonization_to_rows(
     df_clean %>%
-      select(all_of(c(decision_cols, output_site_cols, date_col,
-                      rank_cols, abundance_col))),
+      select(all_of(c(
+        decision_cols, output_site_cols, date_col,
+        rank_cols, abundance_col
+      ))),
     decision_harm,
-    decision_cols
+    decision_cols,
+    abundance_col
   )
   
   out <- mapped_rows %>%
     group_by(across(all_of(c(output_site_cols, date_col, rank_cols)))) %>%
     summarise(
       !!abundance_col := sum(.data[[abundance_col]], na.rm = TRUE),
-      flag_coarse_taxon = any(flag_coarse_taxon),
+      flag_coarse_taxon = any(flag_coarse_taxon, na.rm = TRUE),
       .groups = "drop"
     ) %>%
     mutate(
@@ -415,7 +472,19 @@ harmonize_taxonomy <- function(df,
       harmonized_taxon = lowest_name(., rank_cols)
     ) %>%
     add_flag_no_finer(output_site_cols, date_col) %>%
-    arrange(across(all_of(c(output_site_cols, date_col))))
+    add_n_finer_fast(output_site_cols) %>%
+    arrange(across(all_of(c(output_site_cols, date_col)))) %>%
+    select(
+      all_of(output_site_cols),
+      all_of(date_col),
+      all_of(rank_cols),
+      all_of(abundance_col),
+      harmonized_rank,
+      harmonized_taxon,
+      flag_coarse_taxon,
+      flag_no_finer,
+      n_finer
+    )
   
   out
 }
